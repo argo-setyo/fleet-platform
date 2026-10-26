@@ -21,7 +21,7 @@ Versi protokol: JT808-2013 (header 12 byte, nomor terminal BCD 6 byte).
 | 16 | 2 | Ketinggian | 005c | Meter |
 | 18 | 2 | Kecepatan | 0000 | Satuan 0,1 km/jam |
 | 20 | 2 | Arah | 0000 | Derajat |
-| 22 | 6 | Waktu | 261026153006 | BCD YYMMDDhhmmss, zona waktu: BELUM DIPASTIKAN |
+| 22 | 6 | Waktu | 261026153006 | BCD YYMMDDhhmmss. Mengikuti pengaturan zona waktu MDVR (saat ini GMT+07:00). Standar JT/T 808 umumnya menyebut GMT+8, jadi zona waktu per perangkat harus disimpan di sistem |
 | 28 | ... | Item tambahan | | Format: ID (1 byte), panjang (1 byte), isi |
 
 ### Item tambahan yang terlihat di perangkat
