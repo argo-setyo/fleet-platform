@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 )
 
 // =======================================================
@@ -54,6 +55,7 @@ func handleConnection(conn net.Conn) {
 	readBuf := make([]byte, 1024)
 
 	for {
+		conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
 		n, err := conn.Read(readBuf)
 		if err != nil {
 			if err == io.EOF {
@@ -141,7 +143,10 @@ func handleFrame(frame []byte, conn net.Conn) {
 	fmt.Println("====== Parsed JTT808 Frame =======================================================")
 	parsed := parseJTT808Frame(frame)
 	printParsedFrame(parsed)
-
+	if !parsed.ChecksumValid {
+		fmt.Println("!!! Checksum salah, frame diabaikan")
+		return
+	}
 	switch parsed.MessageID {
 	case 0x0100: // Registration
 		resp := build8100Response(parsed.PhoneBCD, parsed.Serial)
