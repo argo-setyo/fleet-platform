@@ -69,60 +69,11 @@ func handleConnection(conn net.Conn) {
 		}
 
 		buffer = append(buffer, readBuf[:n]...)
-		frames := extractFrames(&buffer)
+		frames := jt808.ExtractFrames(&buffer)
 		for _, frame := range frames {
 			handleFrame(frame, conn)
 		}
 	}
-}
-
-// =======================================================
-// Unescape & Escape Data JT/T 808
-// =======================================================
-func unescapeJT808(src []byte) []byte {
-	var res []byte
-	for i := 0; i < len(src); i++ {
-		if src[i] == 0x7D && i+1 < len(src) {
-			if src[i+1] == 0x02 {
-				res = append(res, 0x7E)
-				i++
-				continue
-			} else if src[i+1] == 0x01 {
-				res = append(res, 0x7D)
-				i++
-				continue
-			}
-		}
-		res = append(res, src[i])
-	}
-	return res
-}
-
-
-// =======================================================
-// Mengekstrak frame JT/T 808 dari buffer (7E...7E)
-// =======================================================
-func extractFrames(buffer *[]byte) [][]byte {
-	var frames [][]byte
-	data := *buffer
-
-	for {
-		start := bytes.IndexByte(data, 0x7E)
-		if start == -1 {
-			break
-		}
-		end := bytes.IndexByte(data[start+1:], 0x7E)
-		if end == -1 {
-			break
-		}
-		end = start + 1 + end
-		frame := data[start : end+1]
-		frames = append(frames, frame)
-		data = data[end+1:]
-	}
-
-	*buffer = data
-	return frames
 }
 
 // =======================================================
