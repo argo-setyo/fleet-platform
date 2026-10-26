@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"fleet-platform/internal/protocol/jt808"
 )
 
 // =======================================================
@@ -96,19 +98,6 @@ func unescapeJT808(src []byte) []byte {
 	return res
 }
 
-func escapeJT808(src []byte) []byte {
-	var res []byte
-	for _, b := range src {
-		if b == 0x7E {
-			res = append(res, 0x7D, 0x02)
-		} else if b == 0x7D {
-			res = append(res, 0x7D, 0x01)
-		} else {
-			res = append(res, b)
-		}
-	}
-	return res
-}
 
 // =======================================================
 // Mengekstrak frame JT/T 808 dari buffer (7E...7E)
@@ -212,7 +201,7 @@ func parseJTT808Frame(frame []byte) ParsedFrame {
 
 	// Unescape payload di antara delimiter 0x7E
 	rawPayload := frame[1 : len(frame)-1]
-	data := unescapeJT808(rawPayload)
+	data := jt808.Unescape(rawPayload)
 
 	if len(data) < 13 {
 		return result
@@ -652,7 +641,7 @@ func buildJTMessage(msgID uint16, phone []byte, serial uint16, body []byte) []by
 		checksum ^= b
 	}
 
-	escapedPayload := escapeJT808(append(packet, checksum))
+	escapedPayload := jt808.Escape(append(packet, checksum))
 
 	frame := []byte{0x7E}
 	frame = append(frame, escapedPayload...)
