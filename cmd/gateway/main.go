@@ -161,7 +161,7 @@ func parseJTT808Frame(frame []byte) ParsedFrame {
 	result.MessageID = binary.BigEndian.Uint16(data[0:2])
 	result.MsgBodyProps = binary.BigEndian.Uint16(data[2:4])
 	result.PhoneBCD = data[4:10]
-	result.PhoneNumber = parseBCDPhone(data[4:10])
+	result.PhoneNumber = jt808.ParseBCDPhone(data[4:10])
 	result.Serial = binary.BigEndian.Uint16(data[10:12])
 
 	bodyLen := int(result.MsgBodyProps & 0x03FF)
@@ -297,7 +297,7 @@ func parse0200Body(body []byte) {
 
 	latitude, longitude := decodeLatLon(status, latitudeRaw, longitudeRaw)
 
-	positionTime := parseBCDTime(timeBCD)
+	positionTime := jt808.ParseBCDTime(timeBCD)
 
 	fmt.Printf("Alarm Flag              : 0x%08X (Binary: %032b)\n", alarm, alarm)
 	fmt.Printf("Status Flag             : 0x%08X (Binary: %032b)\n", status, status)
@@ -355,7 +355,7 @@ func parse0200Body(body []byte) {
 
 				itemLatitude := float64(itemLatitudeRaw) / 1e6
 				itemLongitude := float64(itemLongitudeRaw) / 1e6
-				itemTime := parseItemBCDTime(itemTimeRaw)
+				itemTime := jt808.ParseBCDTime(itemTimeRaw)
 
 				var alarmType string
 				if itemID == 0x64 {
@@ -514,40 +514,6 @@ func stopRun(v uint32) string {
 		return "Stopped"
 	}
 	return "Running"
-}
-
-// =======================================================
-// Konversi BCD 6 byte -> string waktu
-// =======================================================
-func parseBCDTime(bcd []byte) string {
-	if len(bcd) != 6 {
-		return "(invalid BCD time)"
-	}
-	return fmt.Sprintf("20%02d-%02d-%02d %02d:%02d:%02d",
-		bcdToInt(bcd[0]),
-		bcdToInt(bcd[1]),
-		bcdToInt(bcd[2]),
-		bcdToInt(bcd[3]),
-		bcdToInt(bcd[4]),
-		bcdToInt(bcd[5]))
-}
-
-func parseItemBCDTime(bcd []byte) string {
-	return parseBCDTime(bcd)
-}
-
-func bcdToInt(b byte) int {
-	return int((b>>4)*10 + (b & 0x0F))
-}
-
-func parseBCDPhone(bcd []byte) string {
-	var phone string
-	for _, b := range bcd {
-		hi := (b & 0xF0) >> 4
-		lo := b & 0x0F
-		phone += fmt.Sprintf("%d%d", hi, lo)
-	}
-	return phone
 }
 
 // =======================================================
