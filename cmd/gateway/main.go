@@ -112,6 +112,11 @@ func handleFrame(frame []byte, conn net.Conn) {
 		printParsedFrame(parsedResp)
 		conn.Write(resp)
 
+	case 0x0704, 0x0900: // Upload data massal dan data transparan: cukup dibalas 0x8001
+		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
+		conn.Write(resp)
+		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x%04X (serial %d)\n", parsed.MessageID, parsed.Serial)
+
 	case 0x0200: // Location / Alarm Report
 		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
 		conn.Write(resp)
