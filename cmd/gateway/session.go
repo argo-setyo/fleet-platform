@@ -36,6 +36,9 @@ func (s *Session) nextSerial() uint16 {
 
 // send mengirim frame ke perangkat dan mencatat kalau gagal.
 func (s *Session) send(frame []byte) {
+	sent := jt808.ParseFrame(frame)
+	fmt.Printf("<<< Kirim 0x%04X, serial %d\n", sent.MessageID, sent.Serial)
+
 	if _, err := s.conn.Write(frame); err != nil {
 		fmt.Println("Gagal mengirim ke", s.conn.RemoteAddr(), ":", err)
 	}

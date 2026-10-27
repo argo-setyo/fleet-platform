@@ -46,3 +46,22 @@ Versi protokol: JT808-2013 (header 12 byte, nomor terminal BCD 6 byte).
 
 - ID pesan 0x0200, panjang body 94 byte (0x005e)
 - Nomor terminal 202505250001, serial 32
+
+## Urutan koneksi perangkat
+
+1. 0x0100 registrasi (hanya saat pertama kali), dibalas 0x8100 dengan kode otentikasi
+2. 0x0102 otentikasi dengan kode tersebut, dibalas 0x8001
+3. 0x0900 (data transparan, jenis 0xA1), dibalas 0x8001
+4. 0x0200 laporan lokasi berkala, dibalas 0x8001
+5. 0x0107 atribut terminal, tidak dibalas (jawaban atas pertanyaan platform)
+
+## 0x0704 - Unggahan lokasi massal (terminal ke platform)
+
+| Offset | Panjang | Field | Contoh | Catatan |
+|---|---|---|---|---|
+| 0 | 2 | Jumlah data | 0001 | |
+| 2 | 1 | Jenis data | 01 | 0 = massal biasa, 1 = data susulan |
+| 3 | 2 | Panjang data ke-1 | 005e | 94 byte |
+| 5 | n | Isi data ke-1 | ... | Format sama dengan isi 0x0200 |
+
+Dibalas dengan 0x8001.
