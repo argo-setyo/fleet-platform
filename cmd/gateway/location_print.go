@@ -108,3 +108,36 @@ func printExtraItem(item jt808.ExtraItem) {
 		fmt.Println("=============================================================================")
 	}
 }
+
+// =======================================================
+// Mencetak isi pesan 0x0704 (unggahan lokasi massal).
+// Pembacaan datanya dikerjakan jt808.ParseLocationBatch.
+// =======================================================
+func parse0704Body(body []byte) {
+	batch, err := jt808.ParseLocationBatch(body)
+	if err != nil && len(batch.Locations) == 0 {
+		fmt.Println("Location Batch             :", err)
+		return
+	}
+
+	fmt.Printf("Batch Type              : %d (%s)\n", batch.Type, batchTypeName(batch.Type))
+	fmt.Printf("Batch Count             : %d\n", len(batch.Locations))
+	for i, loc := range batch.Locations {
+		fmt.Printf("  [%d] %s | lat %.6f | lon %.6f | %.1f km/h | alarm 0x%08X\n",
+			i+1, loc.Time, loc.Latitude, loc.Longitude, float64(loc.Speed)/10, loc.Alarm)
+	}
+	if err != nil {
+		fmt.Println("Batch Warning           :", err)
+	}
+}
+
+func batchTypeName(t byte) string {
+	switch t {
+	case jt808.BatchNormal:
+		return "unggahan massal biasa"
+	case jt808.BatchBlindFill:
+		return "data susulan"
+	default:
+		return "tidak dikenal"
+	}
+}

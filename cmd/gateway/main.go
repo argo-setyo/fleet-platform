@@ -145,6 +145,8 @@ func printParsedFrame(p jt808.Frame) {
 		parse8001Body(p.MsgBody)
 	case 0x0200:
 		parse0200Body(p.MsgBody)
+	case 0x0704:
+		parse0704Body(p.MsgBody)
 	}
 
 	fmt.Printf("Checksum                : 0x%02X (Computed: %v)\n", p.Checksum, p.ChecksumValid)
