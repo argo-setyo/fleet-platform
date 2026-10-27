@@ -89,7 +89,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 	}
 	switch parsed.MessageID {
 	case 0x0100: // Registration
-		resp := build8100Response(parsed.PhoneBCD, parsed.Serial)
+		resp := jt808.BuildRegisterResponse(parsed.PhoneBCD, parsed.Serial)
 		fmt.Println("====== SEND 0x8100 RESPONSE ======================================================")
 		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
 		parsedResp := jt808.ParseFrame(resp)
@@ -97,7 +97,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 		conn.Write(resp)
 
 	case 0x0102: // Authentication
-		resp := build8001Response(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
+		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
 		fmt.Println("====== SEND 0x8001 RESPONSE (AUTH SUCCESS) ======================================")
 		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
 		parsedResp := jt808.ParseFrame(resp)
@@ -105,7 +105,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 		conn.Write(resp)
 
 	case 0x0002: // Heartbeat
-		resp := build8001Response(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
+		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
 		fmt.Println("====== SEND 0x8001 RESPONSE ======================================================")
 		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
 		parsedResp := jt808.ParseFrame(resp)
@@ -113,7 +113,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 		conn.Write(resp)
 
 	case 0x0200: // Location / Alarm Report
-		resp := build8001Response(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
+		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
 		conn.Write(resp)
 
 		// CEK VIDEO ALARM
@@ -464,21 +464,9 @@ func stopRun(v uint32) string {
 }
 
 // =======================================================
-// Bangun message 0x8100 (Registrasi Response)
-// =======================================================
-func build8100Response(phone []byte, serial uint16) []byte {
-	authCode := []byte("OK")
-	body := append([]byte{
-		byte(serial >> 8), byte(serial),
-		0x00,
-	}, authCode...)
-	return buildJTMessage(0x8100, phone, 1, body)
-}
-
-// =======================================================
 // Bangun message 0x8001 (Universal Response)
 // =======================================================
-func build8001Response(phone []byte, msgID, serial uint16, result byte) []byte {
+func BuildGeneralResponse(phone []byte, msgID, serial uint16, result byte) []byte {
 	body := []byte{
 		byte(serial >> 8), byte(serial),
 		byte(msgID >> 8), byte(msgID),
