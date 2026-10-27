@@ -81,7 +81,7 @@ func handleConnection(conn net.Conn) {
 // =======================================================
 func handleFrame(frame []byte, conn net.Conn) {
 	fmt.Println("====== Parsed JTT808 Frame =======================================================")
-	parsed := parseJTT808Frame(frame)
+	parsed := jt808.ParseFrame(frame)
 	printParsedFrame(parsed)
 	if !parsed.ChecksumValid {
 		fmt.Println("!!! Checksum salah, frame diabaikan")
@@ -92,7 +92,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 		resp := build8100Response(parsed.PhoneBCD, parsed.Serial)
 		fmt.Println("====== SEND 0x8100 RESPONSE ======================================================")
 		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
-		parsedResp := parseJTT808Frame(resp)
+		parsedResp := jt808.ParseFrame(resp)
 		printParsedFrame(parsedResp)
 		conn.Write(resp)
 
@@ -100,7 +100,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 		resp := build8001Response(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
 		fmt.Println("====== SEND 0x8001 RESPONSE (AUTH SUCCESS) ======================================")
 		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
-		parsedResp := parseJTT808Frame(resp)
+		parsedResp := jt808.ParseFrame(resp)
 		printParsedFrame(parsedResp)
 		conn.Write(resp)
 
@@ -108,7 +108,7 @@ func handleFrame(frame []byte, conn net.Conn) {
 		resp := build8001Response(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
 		fmt.Println("====== SEND 0x8001 RESPONSE ======================================================")
 		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
-		parsedResp := parseJTT808Frame(resp)
+		parsedResp := jt808.ParseFrame(resp)
 		printParsedFrame(parsedResp)
 		conn.Write(resp)
 
@@ -127,62 +127,9 @@ func handleFrame(frame []byte, conn net.Conn) {
 }
 
 // =======================================================
-// Struktur hasil parsing
-// =======================================================
-type ParsedFrame struct {
-	MessageID     uint16
-	MsgBodyProps  uint16
-	PhoneBCD      []byte
-	PhoneNumber   string
-	Serial        uint16
-	MsgBody       []byte
-	Checksum      byte
-	ChecksumValid bool
-	Raw           []byte
-}
-
-// =======================================================
-// Parsing frame JT/T 808
-// =======================================================
-func parseJTT808Frame(frame []byte) ParsedFrame {
-	result := ParsedFrame{Raw: frame}
-	if len(frame) < 3 {
-		return result
-	}
-
-	// Unescape payload di antara delimiter 0x7E
-	rawPayload := frame[1 : len(frame)-1]
-	data := jt808.Unescape(rawPayload)
-
-	if len(data) < 13 {
-		return result
-	}
-
-	result.MessageID = binary.BigEndian.Uint16(data[0:2])
-	result.MsgBodyProps = binary.BigEndian.Uint16(data[2:4])
-	result.PhoneBCD = data[4:10]
-	result.PhoneNumber = jt808.ParseBCDPhone(data[4:10])
-	result.Serial = binary.BigEndian.Uint16(data[10:12])
-
-	bodyLen := int(result.MsgBodyProps & 0x03FF)
-	if bodyLen > len(data)-13 {
-		bodyLen = len(data) - 13
-	}
-	result.MsgBody = data[12 : 12+bodyLen]
-	result.Checksum = data[len(data)-1]
-
-	cs := byte(0)
-	for _, b := range data[:len(data)-1] {
-		cs ^= b
-	}
-	result.ChecksumValid = (cs == result.Checksum)
-	return result
-}
-
-// =======================================================
 // Tampilkan hasil parsing frame
 // =======================================================
-func printParsedFrame(p ParsedFrame) {
+func printParsedFrame(p jt808.Frame) {
 	fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(p.Raw))
 	fmt.Printf("Message ID              : 0x%04X\n", p.MessageID)
 	fmt.Printf("MsgBodyProps            : 0x%04X\n", p.MsgBodyProps)
