@@ -90,10 +90,6 @@ func printExtraItem(item jt808.ExtraItem) {
 			alarmType = "BSD Camera"
 		}
 
-		hasVideoAlarm = true
-		lastAlarmID = itemAlarmID
-		lastAlarmType = itemID
-
 		fmt.Println(">>> VIDEO ALARM DETECTED")
 
 		eventType := parseEventTypeName(itemID, itemEvent)

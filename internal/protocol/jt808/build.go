@@ -21,30 +21,31 @@ func BuildMessage(msgID uint16, phone []byte, serial uint16, body []byte) []byte
 	return frame
 }
 
-// BuildGeneralResponse menyusun balasan umum platform (0x8001):
-// "pesan nomor <serial> dengan ID <msgID> sudah kuterima, hasilnya <result>".
-// result: 0 = berhasil, 1 = gagal, 2 = pesan salah, 3 = tidak didukung.
+// BuildGeneralResponse menyusun balasan umum platform (0x8001) untuk pesan
+// req yang baru diterima: "pesan dengan serial <req.Serial> dan ID
+// <req.MessageID> sudah kuterima, hasilnya <result>".
 //
-// TODO (Langkah 16): nomor serial pesan keluar masih tetap 1.
-// Nanti diganti dengan penghitung yang bertambah di tiap pesan.
-func BuildGeneralResponse(phone []byte, msgID, serial uint16, result byte) []byte {
+// outSerial adalah nomor serial pesan balasan ini sendiri. Nomor itu
+// bertambah di tiap pesan yang dikirim server, dan dihitung oleh Session.
+//
+// result: 0 = berhasil, 1 = gagal, 2 = pesan salah, 3 = tidak didukung.
+func BuildGeneralResponse(req Frame, outSerial uint16, result byte) []byte {
 	body := []byte{
-		byte(serial >> 8), byte(serial),
-		byte(msgID >> 8), byte(msgID),
+		byte(req.Serial >> 8), byte(req.Serial),
+		byte(req.MessageID >> 8), byte(req.MessageID),
 		result,
 	}
-	return BuildMessage(0x8001, phone, 1, body)
+	return BuildMessage(0x8001, req.PhoneBCD, outSerial, body)
 }
 
-// BuildRegisterResponse menyusun balasan registrasi terminal (0x8100)
-// dengan hasil berhasil dan kode otentikasi "OK".
-//
-// TODO (Langkah 16): nomor serial pesan keluar masih tetap 1.
-func BuildRegisterResponse(phone []byte, serial uint16) []byte {
+// BuildRegisterResponse menyusun balasan registrasi terminal (0x8100) untuk
+// pesan registrasi req, dengan hasil berhasil dan kode otentikasi "OK".
+// outSerial adalah nomor serial pesan balasan ini sendiri.
+func BuildRegisterResponse(req Frame, outSerial uint16) []byte {
 	authCode := []byte("OK")
 	body := append([]byte{
-		byte(serial >> 8), byte(serial),
+		byte(req.Serial >> 8), byte(req.Serial),
 		0x00, // hasil: 0 = berhasil
 	}, authCode...)
-	return BuildMessage(0x8100, phone, 1, body)
+	return BuildMessage(0x8100, req.PhoneBCD, outSerial, body)
 }

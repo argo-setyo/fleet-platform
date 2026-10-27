@@ -13,14 +13,6 @@ import (
 )
 
 // =======================================================
-// GLOBAL FLAG UNTUK VIDEO ALARM
-// (nanti akan dipindah ke per-koneksi, bukan global)
-// =======================================================
-var hasVideoAlarm bool
-var lastAlarmID uint32
-var lastAlarmType byte
-
-// =======================================================
 // Fungsi utama (main) -> setup TCP server
 // =======================================================
 func main() {
@@ -53,6 +45,9 @@ func main() {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// Setiap koneksi punya Session sendiri
+	s := newSession(conn)
+
 	var buffer []byte
 	readBuf := make([]byte, 1024)
 
@@ -71,7 +66,7 @@ func handleConnection(conn net.Conn) {
 		buffer = append(buffer, readBuf[:n]...)
 		frames := jt808.ExtractFrames(&buffer)
 		for _, frame := range frames {
-			handleFrame(frame, conn)
+			handleFrame(frame, s)
 		}
 	}
 }
@@ -79,50 +74,49 @@ func handleConnection(conn net.Conn) {
 // =======================================================
 // Handle frame: parsing + balasan jika perlu
 // =======================================================
-func handleFrame(frame []byte, conn net.Conn) {
+func handleFrame(frame []byte, s *Session) {
 	fmt.Println("====== Parsed JTT808 Frame =======================================================")
 	parsed := jt808.ParseFrame(frame)
 	printParsedFrame(parsed)
+
 	if !parsed.ChecksumValid {
 		fmt.Println("!!! Checksum salah, frame diabaikan")
 		return
 	}
+
 	switch parsed.MessageID {
 	case 0x0100: // Registration
-		resp := jt808.BuildRegisterResponse(parsed.PhoneBCD, parsed.Serial)
+		resp := jt808.BuildRegisterResponse(parsed, s.nextSerial())
 		fmt.Println("====== SEND 0x8100 RESPONSE ======================================================")
-		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
-		parsedResp := jt808.ParseFrame(resp)
-		printParsedFrame(parsedResp)
-		conn.Write(resp)
+		printParsedFrame(jt808.ParseFrame(resp))
+		s.send(resp)
 
 	case 0x0102: // Authentication
-		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
+		resp := jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00)
 		fmt.Println("====== SEND 0x8001 RESPONSE (AUTH SUCCESS) ======================================")
-		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
-		parsedResp := jt808.ParseFrame(resp)
-		printParsedFrame(parsedResp)
-		conn.Write(resp)
+		printParsedFrame(jt808.ParseFrame(resp))
+		s.send(resp)
 
 	case 0x0002: // Heartbeat
-		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
+		resp := jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00)
 		fmt.Println("====== SEND 0x8001 RESPONSE ======================================================")
-		fmt.Printf("Raw HEX                 : %s\n", hex.EncodeToString(resp))
-		parsedResp := jt808.ParseFrame(resp)
-		printParsedFrame(parsedResp)
-		conn.Write(resp)
+		printParsedFrame(jt808.ParseFrame(resp))
+		s.send(resp)
 
 	case 0x0704, 0x0900: // Upload data massal dan data transparan: cukup dibalas 0x8001
-		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
-		conn.Write(resp)
+		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00))
 		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x%04X (serial %d)\n", parsed.MessageID, parsed.Serial)
 
 	case 0x0200: // Location / Alarm Report
-		resp := jt808.BuildGeneralResponse(parsed.PhoneBCD, parsed.MessageID, parsed.Serial, 0x00)
-		conn.Write(resp)
+		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00))
+
+		// Catat alarm kamera (kalau ada) di Session koneksi ini
+		if loc, err := jt808.ParseLocation(parsed.MsgBody); err == nil {
+			s.noteVideoAlarm(loc)
+		}
 
 		// CEK VIDEO ALARM
-		if hasVideoAlarm {
+		if s.hasVideoAlarm {
 			fmt.Println(">>> VIDEO ALARM FOUND, READY TO REQUEST")
 			// nanti di sini kirim 0x9208
 		}
@@ -331,42 +325,4 @@ func stopRun(v uint32) string {
 		return "Stopped"
 	}
 	return "Running"
-}
-
-// =======================================================
-// Bangun message 0x8001 (Universal Response)
-// =======================================================
-func BuildGeneralResponse(phone []byte, msgID, serial uint16, result byte) []byte {
-	body := []byte{
-		byte(serial >> 8), byte(serial),
-		byte(msgID >> 8), byte(msgID),
-		result,
-	}
-	return buildJTMessage(0x8001, phone, 1, body)
-}
-
-// =======================================================
-// Bangun frame JT/T 808 lengkap
-// =======================================================
-func buildJTMessage(msgID uint16, phone []byte, serial uint16, body []byte) []byte {
-	msgProps := uint16(len(body)) & 0x03FF
-	packet := []byte{
-		byte(msgID >> 8), byte(msgID),
-		byte(msgProps >> 8), byte(msgProps),
-	}
-	packet = append(packet, phone...)
-	packet = append(packet, byte(serial>>8), byte(serial))
-	packet = append(packet, body...)
-
-	checksum := byte(0)
-	for _, b := range packet {
-		checksum ^= b
-	}
-
-	escapedPayload := jt808.Escape(append(packet, checksum))
-
-	frame := []byte{0x7E}
-	frame = append(frame, escapedPayload...)
-	frame = append(frame, 0x7E)
-	return frame
 }
