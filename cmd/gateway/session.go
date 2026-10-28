@@ -15,12 +15,18 @@ import (
 // dbTimeout adalah batas waktu tiap perintah ke database.
 const dbTimeout = 5 * time.Second
 
+// lastSeenInterval adalah jeda minimal antar pembaruan last_seen_at.
+// Tanpa jeda ini, tiap pesan (bisa tiap beberapa detik) akan menulis ke
+// database hanya untuk memperbarui satu kolom waktu.
+const lastSeenInterval = 30 * time.Second
+
 // LocationStore adalah bagian dari database yang dibutuhkan gateway.
 // Dengan interface ini, kode gateway tidak bergantung langsung pada
 // PostgreSQL, dan di tes kita bisa memakai "database palsu".
 type LocationStore interface {
 	EnsureDevice(ctx context.Context, phone string) (store.Device, error)
 	InsertLocation(ctx context.Context, r store.LocationRecord) (bool, error)
+	TouchDevice(ctx context.Context, deviceID int64) error
 }
 
 // Session menyimpan status satu koneksi perangkat.
@@ -34,6 +40,8 @@ type Session struct {
 	db            LocationStore // nil = mode cetak saja, data tidak disimpan
 	device        *store.Device // diisi setelah perangkat dikenali di database
 	outSerial     uint16        // nomor serial pesan terakhir yang dikirim server
+	lastTouch     time.Time     // kapan last_seen_at terakhir diperbarui
+	now           func() time.Time // jam; kosong berarti jam sistem (diganti di tes)
 	hasVideoAlarm bool          // pernah menerima alarm kamera di koneksi ini
 	lastAlarmID   uint32        // ID alarm kamera terakhir
 	lastAlarmType byte          // jenis alarm kamera terakhir (0x64 ADAS, 0x65 DMS, 0x67 BSD)
@@ -51,8 +59,21 @@ func (s *Session) nextSerial() uint16 {
 	return s.outSerial
 }
 
+// clock mengembalikan waktu sekarang. Di tes, jam bisa diganti lewat s.now.
+func (s *Session) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
 // send mengirim frame ke perangkat dan mencatat kalau gagal.
+// Di mode ringkas, satu baris tentang pesan yang dikirim ikut dicetak.
 func (s *Session) send(frame []byte) {
+	if !debugMode {
+		sent := jt808.ParseFrame(frame)
+		fmt.Printf("%s %s -> 0x%04X #%d\n", time.Now().Format("15:04:05"), sent.PhoneNumber, sent.MessageID, sent.Serial)
+	}
 	if _, err := s.conn.Write(frame); err != nil {
 		fmt.Println("Gagal mengirim ke", s.conn.RemoteAddr(), ":", err)
 	}
@@ -87,7 +108,30 @@ func (s *Session) ensureDevice(phone string) error {
 		return err
 	}
 	s.device = &dev
+	s.lastTouch = s.clock() // EnsureDevice sudah memperbarui last_seen_at
 	return nil
+}
+
+// touch memperbarui last_seen_at perangkat di database, paling sering sekali
+// per lastSeenInterval, supaya status online/offline bisa diketahui tanpa
+// menulis ke database di setiap pesan.
+func (s *Session) touch() {
+	if s.db == nil || s.device == nil {
+		return
+	}
+	now := s.clock()
+	if now.Sub(s.lastTouch) < lastSeenInterval {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	if err := s.db.TouchDevice(ctx, s.device.ID); err != nil {
+		fmt.Println("Gagal memperbarui last_seen_at:", err)
+		return
+	}
+	s.lastTouch = now
 }
 
 // saveLocations menyimpan sekumpulan laporan lokasi ke database dan

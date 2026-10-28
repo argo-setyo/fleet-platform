@@ -94,3 +94,10 @@ ON CONFLICT (device_id, device_time) DO NOTHING`
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// TouchDevice memperbarui last_seen_at perangkat ke waktu sekarang, tanda
+// bahwa perangkat masih terhubung dan mengirim data.
+func (s *Store) TouchDevice(ctx context.Context, deviceID int64) error {
+	_, err := s.pool.Exec(ctx, "UPDATE devices SET last_seen_at = now() WHERE id = $1", deviceID)
+	return err
+}

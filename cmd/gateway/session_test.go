@@ -15,6 +15,7 @@ type fakeStore struct {
 	timezoneOffset int
 	ensured        []string
 	records        []store.LocationRecord
+	touched        []int64
 }
 
 func (f *fakeStore) EnsureDevice(ctx context.Context, phone string) (store.Device, error) {
@@ -25,6 +26,11 @@ func (f *fakeStore) EnsureDevice(ctx context.Context, phone string) (store.Devic
 func (f *fakeStore) InsertLocation(ctx context.Context, r store.LocationRecord) (bool, error) {
 	f.records = append(f.records, r)
 	return true, nil
+}
+
+func (f *fakeStore) TouchDevice(ctx context.Context, deviceID int64) error {
+	f.touched = append(f.touched, deviceID)
+	return nil
 }
 
 func TestSessionNextSerial(t *testing.T) {
@@ -183,5 +189,52 @@ func TestEnsureDeviceOnlyOncePerSession(t *testing.T) {
 
 	if len(fake.ensured) != 1 {
 		t.Errorf("EnsureDevice dipanggil %d kali, want 1", len(fake.ensured))
+	}
+}
+
+// last_seen_at tidak boleh ditulis di setiap pesan: paling sering sekali
+// per 30 detik.
+func TestTouchIsThrottled(t *testing.T) {
+	fake := &fakeStore{}
+	now := time.Date(2026, 10, 28, 4, 0, 0, 0, time.UTC)
+	s := &Session{
+		db:     fake,
+		device: &store.Device{ID: 42},
+		now:    func() time.Time { return now },
+	}
+
+	s.touch() // pertama: ditulis
+	now = now.Add(10 * time.Second)
+	s.touch() // baru 10 detik: dilewati
+	now = now.Add(25 * time.Second)
+	s.touch() // sudah 35 detik: ditulis lagi
+
+	if len(fake.touched) != 2 {
+		t.Errorf("TouchDevice dipanggil %d kali, want 2", len(fake.touched))
+	}
+	if len(fake.touched) > 0 && fake.touched[0] != 42 {
+		t.Errorf("deviceID = %d, want 42", fake.touched[0])
+	}
+}
+
+func TestTouchWithoutDatabase(t *testing.T) {
+	s := &Session{} // db nil: tidak boleh error
+	s.touch()
+}
+
+// EnsureDevice sudah memperbarui last_seen_at, jadi touch yang langsung
+// menyusul tidak perlu menulis lagi.
+func TestEnsureDeviceCountsAsSeen(t *testing.T) {
+	fake := &fakeStore{}
+	now := time.Date(2026, 10, 28, 4, 0, 0, 0, time.UTC)
+	s := &Session{db: fake, now: func() time.Time { return now }}
+
+	if err := s.ensureDevice("202505250001"); err != nil {
+		t.Fatal(err)
+	}
+	s.touch()
+
+	if len(fake.touched) != 0 {
+		t.Errorf("TouchDevice dipanggil %d kali, want 0", len(fake.touched))
 	}
 }

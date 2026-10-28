@@ -15,11 +15,23 @@ import (
 	"fleet-platform/internal/store"
 )
 
+// debugMode mencetak setiap frame secara lengkap (untuk belajar dan mencari
+// masalah). Nilainya dibaca sekali saat program mulai dan tidak berubah lagi.
+// Aktifkan dengan GATEWAY_DEBUG=1. Kalau tidak, gateway hanya mencetak satu
+// baris ringkas per pesan.
+var debugMode = os.Getenv("GATEWAY_DEBUG") == "1"
+
 // =======================================================
 // Fungsi utama (main) -> setup TCP server
 // =======================================================
 func main() {
 	port := "38000"
+
+	if debugMode {
+		fmt.Println("Mode debug: setiap frame dicetak lengkap")
+	} else {
+		fmt.Println("Mode ringkas: satu baris per pesan (set GATEWAY_DEBUG=1 untuk cetakan lengkap)")
+	}
 
 	// Database dipakai kalau DATABASE_URL diisi. Kalau kosong, gateway tetap
 	// berjalan seperti sebelumnya: data hanya dicetak, tidak disimpan.
@@ -94,42 +106,53 @@ func handleConnection(conn net.Conn, db LocationStore) {
 // Handle frame: parsing + balasan jika perlu
 // =======================================================
 func handleFrame(frame []byte, s *Session) {
-	fmt.Println("====== Parsed JTT808 Frame =======================================================")
 	parsed := jt808.ParseFrame(frame)
-	printParsedFrame(parsed)
+	if debugMode {
+		fmt.Println("====== Parsed JTT808 Frame =======================================================")
+		printParsedFrame(parsed)
+	} else {
+		fmt.Printf("%s %s <- 0x%04X #%d\n", time.Now().Format("15:04:05"), parsed.PhoneNumber, parsed.MessageID, parsed.Serial)
+	}
 
 	if !parsed.ChecksumValid {
 		fmt.Println("!!! Checksum salah, frame diabaikan")
 		return
 	}
 
-	// Kenali perangkat di database (hanya dikerjakan sekali per koneksi)
+	// Kenali perangkat di database (sekali per koneksi), lalu catat bahwa
+	// perangkat masih mengirim data.
 	if err := s.ensureDevice(parsed.PhoneNumber); err != nil {
 		fmt.Println("!!! Gagal mengenali perangkat di database:", err)
 	}
+	s.touch()
 
 	switch parsed.MessageID {
 	case 0x0100: // Registration
 		resp := jt808.BuildRegisterResponse(parsed, s.nextSerial())
-		fmt.Println("====== SEND 0x8100 RESPONSE ======================================================")
-		printParsedFrame(jt808.ParseFrame(resp))
+		if debugMode {
+			fmt.Println("====== SEND 0x8100 RESPONSE ======================================================")
+			printParsedFrame(jt808.ParseFrame(resp))
+		}
 		s.send(resp)
 
 	case 0x0102: // Authentication
 		resp := jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00)
-		fmt.Println("====== SEND 0x8001 RESPONSE (AUTH SUCCESS) ======================================")
-		printParsedFrame(jt808.ParseFrame(resp))
+		if debugMode {
+			fmt.Println("====== SEND 0x8001 RESPONSE (AUTH SUCCESS) ======================================")
+			printParsedFrame(jt808.ParseFrame(resp))
+		}
 		s.send(resp)
 
 	case 0x0002: // Heartbeat
 		resp := jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00)
-		fmt.Println("====== SEND 0x8001 RESPONSE ======================================================")
-		printParsedFrame(jt808.ParseFrame(resp))
+		if debugMode {
+			fmt.Println("====== SEND 0x8001 RESPONSE ======================================================")
+			printParsedFrame(jt808.ParseFrame(resp))
+		}
 		s.send(resp)
 
 	case 0x0900: // Data transparan: cukup dibalas 0x8001
 		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00))
-		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x0900 (serial %d)\n", parsed.Serial)
 
 	case 0x0704: // Upload lokasi massal (termasuk data susulan)
 		result := byte(0x00) // 0 = berhasil, 1 = gagal, 2 = pesan salah
@@ -148,7 +171,6 @@ func handleFrame(frame []byte, s *Session) {
 			}
 		}
 		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), result))
-		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x0704 (serial %d, hasil %d)\n", parsed.Serial, result)
 
 	case 0x0200: // Location / Alarm Report
 		result := byte(0x00)
@@ -176,7 +198,9 @@ func handleFrame(frame []byte, s *Session) {
 		}
 	}
 
-	fmt.Println("=====================================================================================")
+	if debugMode {
+		fmt.Println("=====================================================================================")
+	}
 }
 
 // =======================================================
