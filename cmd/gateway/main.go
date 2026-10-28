@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"time"
 
 	"fleet-platform/internal/protocol/jt808"
+	"fleet-platform/internal/store"
 )
 
 // =======================================================
@@ -17,6 +20,22 @@ import (
 // =======================================================
 func main() {
 	port := "38000"
+
+	// Database dipakai kalau DATABASE_URL diisi. Kalau kosong, gateway tetap
+	// berjalan seperti sebelumnya: data hanya dicetak, tidak disimpan.
+	var db LocationStore
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		st, err := store.Open(context.Background(), url)
+		if err != nil {
+			fmt.Println("Gagal terhubung ke database:", err)
+			return
+		}
+		defer st.Close()
+		db = st
+		fmt.Println("Database terhubung")
+	} else {
+		fmt.Println("DATABASE_URL kosong: data hanya dicetak, tidak disimpan")
+	}
 
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -35,18 +54,18 @@ func main() {
 		}
 
 		fmt.Println("New connection from:", conn.RemoteAddr())
-		go handleConnection(conn)
+		go handleConnection(conn, db)
 	}
 }
 
 // =======================================================
 // Handle koneksi client
 // =======================================================
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, db LocationStore) {
 	defer conn.Close()
 
 	// Setiap koneksi punya Session sendiri
-	s := newSession(conn)
+	s := newSession(conn, db)
 
 	var buffer []byte
 	readBuf := make([]byte, 1024)
@@ -84,6 +103,11 @@ func handleFrame(frame []byte, s *Session) {
 		return
 	}
 
+	// Kenali perangkat di database (hanya dikerjakan sekali per koneksi)
+	if err := s.ensureDevice(parsed.PhoneNumber); err != nil {
+		fmt.Println("!!! Gagal mengenali perangkat di database:", err)
+	}
+
 	switch parsed.MessageID {
 	case 0x0100: // Registration
 		resp := jt808.BuildRegisterResponse(parsed, s.nextSerial())
@@ -103,17 +127,47 @@ func handleFrame(frame []byte, s *Session) {
 		printParsedFrame(jt808.ParseFrame(resp))
 		s.send(resp)
 
-	case 0x0704, 0x0900: // Upload data massal dan data transparan: cukup dibalas 0x8001
+	case 0x0900: // Data transparan: cukup dibalas 0x8001
 		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00))
-		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x%04X (serial %d)\n", parsed.MessageID, parsed.Serial)
+		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x0900 (serial %d)\n", parsed.Serial)
+
+	case 0x0704: // Upload lokasi massal (termasuk data susulan)
+		result := byte(0x00) // 0 = berhasil, 1 = gagal, 2 = pesan salah
+		batch, err := jt808.ParseLocationBatch(parsed.MsgBody)
+		if err != nil {
+			fmt.Println("!!! Batch tidak utuh:", err)
+			result = 0x02
+		}
+		if len(batch.Locations) > 0 {
+			saved, err := s.saveLocations(batch.Locations, batch.Type == jt808.BatchBlindFill)
+			if err != nil {
+				fmt.Println("!!! Gagal menyimpan batch:", err)
+				result = 0x01 // gagal: perangkat boleh mengirim ulang
+			} else if s.db != nil {
+				fmt.Printf(">>> Tersimpan %d dari %d titik (sisanya sudah ada)\n", saved, len(batch.Locations))
+			}
+		}
+		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), result))
+		fmt.Printf(">>> Balas 0x8001 untuk pesan 0x0704 (serial %d, hasil %d)\n", parsed.Serial, result)
 
 	case 0x0200: // Location / Alarm Report
-		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), 0x00))
-
-		// Catat alarm kamera (kalau ada) di Session koneksi ini
-		if loc, err := jt808.ParseLocation(parsed.MsgBody); err == nil {
+		result := byte(0x00)
+		if loc, err := jt808.ParseLocation(parsed.MsgBody); err != nil {
+			fmt.Println("!!! Laporan lokasi tidak bisa dibaca:", err)
+			result = 0x02
+		} else {
+			// Catat alarm kamera (kalau ada) di Session koneksi ini
 			s.noteVideoAlarm(loc)
+
+			saved, err := s.saveLocations([]jt808.Location{loc}, false)
+			if err != nil {
+				fmt.Println("!!! Gagal menyimpan lokasi:", err)
+				result = 0x01
+			} else if s.db != nil {
+				fmt.Printf(">>> Lokasi tersimpan (titik baru: %d)\n", saved)
+			}
 		}
+		s.send(jt808.BuildGeneralResponse(parsed, s.nextSerial(), result))
 
 		// CEK VIDEO ALARM
 		if s.hasVideoAlarm {

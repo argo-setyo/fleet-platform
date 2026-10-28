@@ -26,6 +26,7 @@ type Location struct {
 	Speed     uint16  // satuan 0,1 km/jam
 	Direction uint16  // derajat
 	Time      string  // waktu perangkat apa adanya, mengikuti zona waktu di perangkat
+	TimeBCD   []byte  // waktu mentah (6 byte BCD), dipakai untuk konversi ke UTC
 	Extras    []ExtraItem
 	ExtrasRaw []byte // byte mentah semua item tambahan
 }
@@ -61,7 +62,8 @@ func ParseLocation(body []byte) (Location, error) {
 	loc.Direction = binary.BigEndian.Uint16(body[20:22])
 
 	loc.Latitude, loc.Longitude = DecodeLatLon(loc.Status, latRaw, lonRaw)
-	loc.Time = ParseBCDTime(body[22:28])
+	loc.TimeBCD = body[22:28]
+	loc.Time = ParseBCDTime(loc.TimeBCD)
 
 	if len(body) > 28 {
 		loc.ExtrasRaw = body[28:]
